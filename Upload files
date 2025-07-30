@@ -1,0 +1,62 @@
+import makeWASocket, { DisconnectReason } from '@whiskeysockets/baileys'
+import { useSingleFileAuthState } from '@whiskeysockets/baileys'
+import { Boom } from '@hapi/boom'
+import pino from 'pino'
+
+const { state, saveState } = useSingleFileAuthState('./auth_info.json')
+
+async function startBot() {
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true, // If using a phone, this is where you’ll see pairing code
+    logger: pino({ level: 'silent' }),
+  })
+
+  sock.ev.on('creds.update', saveState)
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update
+    if (connection === 'close') {
+      const shouldReconnect =
+        (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut
+      console.log('connection closed due to', lastDisconnect?.error, ', reconnecting', shouldReconnect)
+      if (shouldReconnect) {
+        startBot()
+      }
+    } else if (connection === 'open') {
+      console.log('✅ CalebsBot-MD is now connected and paired!')
+    }
+  })
+
+  sock.ev.on('messages.upsert', async ({ messages }) => {
+    const msg = messages[0]
+    if (!msg.message) return
+    const from = msg.key.remoteJid
+    const text =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      msg.message.imageMessage?.caption ||
+      ''
+
+    console.log('📥 Message from', from, ':', text)
+
+    // 🔥 Basic Commands Start Here
+    if (text.toLowerCase() === '.ping') {
+      await sock.sendMessage(from, { text: '🏓 Pong! CalebsBot-MD is online.' })
+    }
+
+    if (text.toLowerCase() === '.owner') {
+      await sock.sendMessage(from, { text: '👑 CalebsBot Owner: wa.me/2347079799769' })
+    }
+
+    if (text.toLowerCase() === '.menu') {
+      await sock.sendMessage(from, {
+        text: `📜 *CalebsBot-MD Menu*\n\n• .ping\n• .owner\n• .menu\n\nMore commands coming 🔥`,
+      })
+    }
+
+    // Add more commands here as we build...
+  })
+}
+
+startBot()
